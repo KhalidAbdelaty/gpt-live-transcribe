@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.streamlit/secrets.toml
+sample_audio/*.wav
+transcript_export.json
+transcript_export.txt
+context_comparison_results.json
+delay_benchmark_results.json
+delay_benchmark_chart.png
+streamlit_*.log

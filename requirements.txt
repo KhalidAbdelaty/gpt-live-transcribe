@@ -1,0 +1,10 @@
+websockets>=13.0
+sounddevice>=0.4.7
+numpy>=1.26
+python-dotenv>=1.0
+matplotlib>=3.8
+
+# demo_app.py only
+streamlit>=1.40
+websocket-client>=1.8
+pandas>=2.0
