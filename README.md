@@ -64,11 +64,34 @@ On Linux:
 - `sample_audio/README.md`: how to record or convert WAV clips in the
   format gpt-live-transcribe expects (24 kHz, mono, 16-bit PCM).
 
+## How turns get committed
+
+`gpt-live-transcribe` rejects `server_vad` and `semantic_vad`, so the client
+decides where a turn ends. That sounds like a timer and is not. Committing
+every few seconds fires during silence, which returns an empty transcript, and
+cuts sentences mid-word, which leaves the model transcribing a fragment and
+inventing words to fill it.
+
+`SpeechGate` commits once the speaker has said something and then gone quiet
+for `silence_hold_s`, with a `max_turn_s` cap so continuous speech still ends
+somewhere. Turns holding less than `min_speech_s` of audio are dropped with
+`input_audio_buffer.clear` rather than committed, so a cough never becomes a
+caption.
+
+The speech threshold adapts rather than being configured. A fixed value tuned
+on one microphone was wrong by a factor of five on another, so the gate keeps a
+running estimate of the room and counts anything several times louder as
+speech. That estimate updates on silence only. Letting speech raise it means
+the floor climbs toward the speaker's own level through a long sentence, and
+the gate stops hearing the voice it was tracking.
+
 ## Notes
 
 - All three test scripts use the same `TranscriptionConfig` and
   `TranscriptState` classes, so the only thing that changes between runs is
   the field the article is testing.
+- Terminal output shortens each `item_id` to its last five characters so a
+  caption line does not wrap. The JSON export keeps the full value.
 - The clips in `sample_audio/` are synthesized speech, which keeps repeated
   runs comparable but is cleaner than real input. Rerun anything you plan
   to act on against your own microphone and background noise.
