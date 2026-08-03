@@ -34,6 +34,7 @@ from transcribe_lib import (
     TranscriptState,
     clear_live_line,
     live_caption_line,
+    short_item_id,
 )
 
 load_dotenv()
@@ -148,7 +149,8 @@ async def main() -> None:
                     if not transcript:
                         continue
                     state.apply_completed(event["item_id"], transcript)
-                    print(f"{clear_live_line()}[caption] {transcript}")
+                    item = short_item_id(event["item_id"])
+                    print(f"{clear_live_line()}[caption] {transcript}  (item {item})")
 
                 elif event_type == "input_audio_buffer.speech_started":
                     print("\n[vad] speech started")

@@ -104,6 +104,18 @@ def live_caption_line(prefix: str, text: str) -> str:
     return prefix + text.ljust(room)
 
 
+def short_item_id(item_id: str, keep: int = 5) -> str:
+    """Shorten an item_id for display only.
+
+    A transcription `item_id` runs to 26 characters, which pushes a caption
+    line onto a second row in a normal terminal and buries the sentence you
+    were trying to read. The tail is enough to tell turns apart on screen.
+    Anything that needs the real value, the JSON export included, keeps it
+    in full.
+    """
+    return "..." + item_id[-keep:] if len(item_id) > keep else item_id
+
+
 def clear_live_line() -> str:
     """Blank the redrawing caption line before printing over it.
 

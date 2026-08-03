@@ -31,6 +31,7 @@ from transcribe_lib import (
     TranscriptState,
     clear_live_line,
     live_caption_line,
+    short_item_id,
 )
 
 load_dotenv()
@@ -52,7 +53,8 @@ async def receive_events(ws, state: TranscriptState) -> None:
             if not transcript:
                 continue
             state.apply_completed(event["item_id"], transcript)
-            print(f"{clear_live_line()}[final]   {transcript}  (item_id={event['item_id']})")
+            item = short_item_id(event["item_id"])
+            print(f"{clear_live_line()}[final]   {transcript}  (item {item})")
 
         elif event_type == "error":
             # A commit that races an already-cleared buffer is harmless noise.
