@@ -21,10 +21,15 @@ from transcribe_lib import SAMPLE_RATE, encode_chunk
 BLOCK_MS = 100
 BLOCK_SIZE = int(SAMPLE_RATE * BLOCK_MS / 1000)
 
-# RMS amplitude, on the int16 scale, above which a chunk counts as speech.
-# Quiet room noise sits well under 200 on the microphones I tested; normal
-# speech runs into the thousands. Raise it in a noisy room.
-SPEECH_RMS_THRESHOLD = 500.0
+# A chunk counts as speech when it is this many times louder than the room.
+# A ratio rather than a fixed amplitude, because microphones disagree wildly:
+# the same sentence measured about 200 RMS on one machine here and about 1200
+# on another. Any single number is wrong on one of them.
+SPEECH_NOISE_RATIO = 4.0
+
+# Floor for the computed threshold, so a perfectly silent digital input does
+# not end up treating its own dither as speech.
+MIN_SPEECH_RMS = 40.0
 
 
 def start_microphone(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> sd.InputStream:
@@ -56,59 +61,83 @@ def chunk_rms(pcm16: bytes) -> float:
 
 
 class SpeechGate:
-    """Decides when the audio buffer is worth committing.
+    """Decides when the audio buffer is worth committing, and when to bin it.
 
     `gpt-live-transcribe` rejects server-side voice activity detection, so the
-    client has to answer two questions the API will not answer for it: has the
-    speaker said anything since the last commit, and have they stopped talking.
+    client has to answer questions the API will not answer for it: has the
+    speaker said anything since the last commit, have they stopped talking, and
+    was it enough audio to be worth transcribing.
 
-    A plain fixed-interval commit gets both wrong. It fires during silence and
-    returns an empty transcript, and it cuts a sentence in half mid-word, which
-    leaves the model transcribing a fragment that starts and ends nowhere. Both
-    failures are visible the first time you run this against a real microphone.
+    A plain fixed-interval commit gets all three wrong. It fires during silence
+    and returns an empty transcript, and it cuts a sentence in half mid-word,
+    which leaves the model transcribing a fragment that starts and ends
+    nowhere. Both failures show up the first time you run this against a real
+    microphone.
 
-    So this is a small voice activity detector, running client-side because the
-    server will not run one for this model.
+    The threshold adapts instead of being configured. A number tuned on one
+    microphone was wrong by a factor of five on the next one, so the gate keeps
+    a running estimate of the room and calls anything several times louder than
+    that speech.
     """
 
     def __init__(
         self,
-        threshold: float = SPEECH_RMS_THRESHOLD,
+        threshold: float | None = None,
         # 0.8s sounded reasonable and was not: a voice dipping at the end of a
         # clause, or a breath mid-sentence, reads as a pause and commits early,
         # which hands the model half a sentence. 1.5s waits out normal speech
         # rhythm and still finalizes a caption fast enough to read live.
         silence_hold_s: float = 1.5,
         max_turn_s: float = 15.0,
+        min_speech_s: float = 0.4,
+        noise_ratio: float = SPEECH_NOISE_RATIO,
     ) -> None:
-        self.threshold = threshold
+        self.threshold = threshold  # None means adapt to the room
         self.silence_hold_s = silence_hold_s
         self.max_turn_s = max_turn_s
+        self.min_speech_s = min_speech_s
+        self.noise_ratio = noise_ratio
+        self._noise_floor: float | None = None
         self.reset()
 
     def reset(self) -> None:
+        """Start a fresh turn. The learned room level carries over."""
         self._heard_speech = False
+        self._speech_chunks = 0
         self._last_speech_at = 0.0
         self._turn_started_at = time.monotonic()
 
+    def _speech_threshold(self, rms: float) -> float:
+        if self.threshold is not None:
+            return self.threshold
+
+        if self._noise_floor is None:
+            self._noise_floor = rms
+        elif rms < self._noise_floor:
+            # Drop toward a quieter room quickly, so the estimate recovers fast
+            # once someone stops talking.
+            self._noise_floor += (rms - self._noise_floor) * 0.5
+        else:
+            # Rise slowly, or a long sentence would drag the floor up to meet
+            # itself and the gate would stop hearing speech.
+            self._noise_floor += (rms - self._noise_floor) * 0.005
+
+        return max(self._noise_floor * self.noise_ratio, MIN_SPEECH_RMS)
+
     def observe(self, pcm16: bytes) -> None:
         """Record whether this chunk carried speech."""
-        if chunk_rms(pcm16) < self.threshold:
+        rms = chunk_rms(pcm16)
+        if rms < self._speech_threshold(rms):
             return
 
         if not self._heard_speech:
             self._heard_speech = True
             self._turn_started_at = time.monotonic()
 
+        self._speech_chunks += 1
         self._last_speech_at = time.monotonic()
 
-    def should_commit(self) -> bool:
-        """True once the speaker has said something and then paused.
-
-        The max-turn cap keeps a single turn from growing without end when
-        somebody talks continuously, which is the one thing a fixed interval
-        did get right.
-        """
+    def _turn_ended(self) -> bool:
         if not self._heard_speech:
             return False
 
@@ -116,6 +145,23 @@ class SpeechGate:
         paused = now - self._last_speech_at >= self.silence_hold_s
         too_long = now - self._turn_started_at >= self.max_turn_s
         return paused or too_long
+
+    def _speech_seconds(self) -> float:
+        return self._speech_chunks * BLOCK_MS / 1000
+
+    def should_commit(self) -> bool:
+        """True once the speaker has said something real and then paused."""
+        return self._turn_ended() and self._speech_seconds() >= self.min_speech_s
+
+    def should_clear(self) -> bool:
+        """True when the turn ended on too little audio to transcribe.
+
+        A door closing or a cough clears the speech threshold for a chunk or
+        two. Committing that returns an empty transcript at best and an
+        invented word at worst, so the buffer gets dropped with
+        `input_audio_buffer.clear` instead.
+        """
+        return self._turn_ended() and self._speech_seconds() < self.min_speech_s
 
 
 async def send_microphone_audio(ws, queue: asyncio.Queue, gate: SpeechGate | None = None) -> None:

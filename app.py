@@ -27,7 +27,7 @@ import time
 import websockets
 from dotenv import load_dotenv
 
-from mic_stream import SPEECH_RMS_THRESHOLD, SpeechGate, send_microphone_audio, start_microphone
+from mic_stream import SpeechGate, send_microphone_audio, start_microphone
 from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState
 
 load_dotenv()
@@ -61,8 +61,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--speech-threshold",
         type=float,
-        default=SPEECH_RMS_THRESHOLD,
-        help="RMS amplitude above which a chunk counts as speech; raise it in a noisy room",
+        default=None,
+        help="fixed RMS amplitude for speech; omit it and the gate learns the room instead",
     )
     parser.add_argument("--export", default="transcript_export.json")
     return parser.parse_args()
@@ -118,6 +118,11 @@ async def main() -> None:
                 if gate.should_commit():
                     gate.reset()
                     await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+                elif gate.should_clear():
+                    # Too little speech to transcribe. Bin it rather than ask
+                    # the model what a door closing said.
+                    gate.reset()
+                    await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
 
         async def receive() -> None:
             nonlocal first_delta_latency
@@ -132,8 +137,11 @@ async def main() -> None:
                     print(f"\r[live] {state.partials[event['item_id']]}", end="", flush=True)
 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
-                    state.apply_completed(event["item_id"], event["transcript"])
-                    print(f"\n[caption] {event['transcript']}")
+                    transcript = event.get("transcript", "").strip()
+                    if not transcript:
+                        continue
+                    state.apply_completed(event["item_id"], transcript)
+                    print(f"\n[caption] {transcript}")
 
                 elif event_type == "input_audio_buffer.speech_started":
                     print("\n[vad] speech started")
@@ -143,6 +151,9 @@ async def main() -> None:
 
                 elif event_type == "error":
                     err = event.get("error", event)
+                    # A commit that races an already-cleared buffer is noise.
+                    if err.get("code") == "input_audio_buffer_commit_empty":
+                        continue
                     print(f"\n[error] {err}")
                     if err.get("param") == "session.audio.input.turn_detection":
                         print(

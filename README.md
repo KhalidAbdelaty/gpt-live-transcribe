@@ -37,10 +37,11 @@ On Linux:
 - `gen_sample_audio.py`: writes the four `sample_audio/` clips through
   OpenAI's speech endpoint, already in 24 kHz mono PCM16. Run this once
   before Test 2 or Test 3.
-- `check_mic.py`: records four seconds of silence and eight of speech, then
-  suggests a `--speech-threshold` that separates the two on your hardware.
-  Run it before the microphone scripts if turns end in the wrong places.
-  It needs no API key and sends nothing anywhere.
+- `check_mic.py`: records four seconds of silence and eight of speech and
+  reports how far apart they are. `SpeechGate` learns the room on its own, so
+  run this only when turns still end in the wrong places: it says whether the
+  microphone can separate your voice from the room at all, which no tuning
+  fixes if the answer is no. Needs no API key and sends nothing anywhere.
 - `test2_context_compare.py`: streams one WAV file through five context
   configurations (no context, prompt-only, keywords-only, languages-only,
   prompt plus keywords), several passes each, so you can compare

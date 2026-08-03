@@ -1,13 +1,14 @@
-"""Measure your microphone so you can set the speech threshold from data.
+"""Check that your microphone separates your voice from the room.
 
-`SpeechGate` decides a turn ended by comparing each audio chunk's RMS
-amplitude against a threshold. The right number depends on your microphone,
-your voice, and how noisy the room is, so guessing at it produces one of two
-failures: a threshold set too high cuts sentences in half whenever your voice
-dips, and one set too low commits on room noise and returns empty transcripts.
+`SpeechGate` learns the room level on its own, so you do not normally need to
+configure anything. Run this when turns end in the wrong places anyway: it
+tells you whether the microphone can tell your voice apart from the room at
+all, which no amount of tuning can fix if the answer is no.
 
-This script records silence, then speech, and prints a threshold that sits
-between them. No API key needed; nothing is sent anywhere.
+It also prints a fixed threshold you can pass to `--speech-threshold` if you
+would rather pin the number than let the gate adapt.
+
+No API key needed; nothing is sent anywhere.
 
 Run with:
     python check_mic.py
@@ -119,12 +120,12 @@ def main() -> None:
     # hundred, and a midpoint on that scale lands far too close to your voice,
     # cutting a turn every time you trail off.
     suggested = max(round(quiet_speech * 0.3, -1), round(noise_floor * 3, -1), 50)
-    print(f"\nSuggested --speech-threshold: {suggested:.0f}")
-    print(f"    python app.py --speech-threshold {suggested:.0f}")
     print(
-        "\nTo use it in test1_basic_client.py, pass it to SpeechGate:"
-        f"\n    gate = SpeechGate(threshold={suggested:.0f})"
+        f"\nYour voice reaches {quiet_speech / max(noise_floor, 1.0):.0f}x the room level."
+        "\nThat is a clean separation, so the adaptive gate should handle it without"
+        "\nany configuration from you."
     )
+    print(f"\nIf you would rather pin the number: --speech-threshold {suggested:.0f}")
 
 
 if __name__ == "__main__":

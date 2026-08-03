@@ -40,23 +40,34 @@ async def receive_events(ws, state: TranscriptState) -> None:
             print(f"\n[final]   {event['transcript']}  (item_id={event['item_id']})")
 
         elif event_type == "error":
+            # A commit that races an already-cleared buffer is harmless noise.
+            if event.get("error", {}).get("code") == "input_audio_buffer_commit_empty":
+                continue
             print(f"\n[error] {event.get('error', event)}")
 
 
 async def commit_on_pause(ws, gate: SpeechGate, poll_s: float = 0.1) -> None:
-    """Commit the buffer once the speaker has said something and then paused.
+    """Commit once the speaker has said something and then paused.
 
     turn_detection is null in this test, so nothing finalizes a turn unless
     the client asks for it. Committing on a fixed timer instead looks simpler
     and behaves badly: it fires during silence and returns empty transcripts,
     and it cuts sentences mid-word. The gate watches audio energy so turns end
     where the speaker ended them.
+
+    When the turn holds too little speech to be worth transcribing, the buffer
+    is dropped with `input_audio_buffer.clear` rather than committed, so a
+    cough never becomes a caption.
     """
     while True:
         await asyncio.sleep(poll_s)
+
         if gate.should_commit():
             gate.reset()
             await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+        elif gate.should_clear():
+            gate.reset()
+            await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
 
 
 async def main() -> None:
