@@ -43,7 +43,7 @@ def measure(seconds: int, label: str) -> list:
             readings.append(rms)
 
             bar = "#" * min(50, int(rms / 100))
-            remaining = deadline - time.monotonic()
+            remaining = max(0.0, deadline - time.monotonic())
             print(f"\r{label} {remaining:4.1f}s  rms {rms:7.0f} |{bar:<50}|", end="", flush=True)
 
     print()
@@ -56,26 +56,44 @@ def main() -> None:
     print(f"Stay quiet for {SILENCE_SECONDS} seconds. Starting now.")
     silence = measure(SILENCE_SECONDS, "  silence")
 
-    print(f"\nNow talk normally for {SPEECH_SECONDS} seconds, at the volume and")
-    print("distance you will actually use. Starting now.")
+    print(f"\nNow talk without stopping for {SPEECH_SECONDS} seconds, at the volume")
+    print("and distance you will actually use. Read something aloud rather than")
+    print("speaking in sentences, since pauses would be measured as your voice.")
+    print("Starting now.")
     speech = measure(SPEECH_SECONDS, "  speech ")
 
     noise_floor = float(np.percentile(silence, 95))
-    # The 10th percentile, not the mean: what matters is how quiet your voice
-    # gets at the ends of clauses, since that is where an early commit happens.
-    quiet_speech = float(np.percentile(speech, 10))
-    loud_speech = float(np.percentile(speech, 90))
+
+    # Only chunks louder than the room count as speech. Averaging the whole
+    # speech recording measures the gaps between your sentences instead of
+    # your voice, which is how you end up with a "quietest speech" of nearly
+    # zero on a recording where you were talking the whole time.
+    active = [r for r in speech if r > noise_floor]
+    talking_fraction = len(active) / len(speech) if speech else 0.0
 
     print("\n--- results ---")
     print(f"room noise (95th percentile) : {noise_floor:7.0f}")
-    print(f"your quietest speech (10th)  : {quiet_speech:7.0f}")
+    print(f"you were talking for         : {talking_fraction * 100:6.0f}% of that window")
+
+    if talking_fraction < 0.35:
+        print(
+            "\nMost of the speech window was quieter than the room, so there is not"
+            "\nenough voice in it to measure. Run it again and talk continuously for"
+            "\nthe full eight seconds, without pausing between sentences."
+        )
+        return
+
+    quiet_speech = float(np.percentile(active, 20))
+    loud_speech = float(np.percentile(active, 90))
+    print(f"your quieter speech (20th)   : {quiet_speech:7.0f}")
     print(f"your loudest speech (90th)   : {loud_speech:7.0f}")
 
-    if quiet_speech <= noise_floor * 1.5:
+    if quiet_speech <= noise_floor * 1.4:
         print(
-            "\nYour quiet speech is too close to the room noise to separate reliably."
-            "\nMove closer to the microphone, speak up, or record somewhere quieter,"
-            "\nthen run this again."
+            f"\nYour voice only reaches about {quiet_speech / noise_floor:.1f}x the room noise,"
+            "\nwhich is too close to separate reliably. A fan, an air conditioner, or a"
+            "\nmicrophone with a high noise floor will all do this. Move closer to the"
+            "\nmicrophone, turn off what you can, and run it again."
         )
         return
 
