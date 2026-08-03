@@ -11,3 +11,4 @@ delay_benchmark_results.json
 delay_benchmark_chart.png
 streamlit_*.log
 _*.py
+context_comparison.png

@@ -61,6 +61,10 @@ On Linux:
 - `plot_delay_benchmark.py`: turns `delay_benchmark_results.json` (written
   by `test3_delay_benchmark.py`) into the delay-versus-latency chart used
   in the article. Run it after the benchmark script.
+- `plot_context_comparison.py`: turns `context_comparison_results.json`
+  (written by `test2_context_compare.py`) into the context-hint comparison
+  image. It renders whatever the run produced, pass counts included, so the
+  figure cannot drift from the data behind it.
 - `sample_audio/README.md`: how to record or convert WAV clips in the
   format gpt-live-transcribe expects (24 kHz, mono, 16-bit PCM).
 
