@@ -53,11 +53,14 @@ def pick_pass(passes: list) -> tuple:
     """Choose which pass to show, and say how often it grouped the number.
 
     Where a configuration grouped the identifier on some passes and not
-    others, show a pass that did and report the count underneath. Hiding the
-    variation would make an intermittent effect look like a rule.
+    others, show the rendering it produced most often and report the count
+    alongside. Taking the first grouped pass instead would let one outlier
+    represent a configuration that mostly did something else, and hiding the
+    count would make an intermittent effect look like a rule.
     """
     grouped = [p for p in passes if any(form in p for form in GROUPED)]
-    chosen = grouped[0] if grouped else passes[0]
+    pool = grouped or passes
+    chosen = max(pool, key=lambda p: sum(1 for q in pool if extract_identifier(q) == extract_identifier(p)))
     return chosen, len(grouped), len(passes)
 
 
