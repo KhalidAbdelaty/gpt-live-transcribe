@@ -26,6 +26,11 @@ from transcribe_lib import SAMPLE_RATE
 SILENCE_SECONDS = 4
 SPEECH_SECONDS = 8
 
+# Opening an input stream produces a burst of noise, and the keypress that
+# started the script lands in the first moments too. Both are loud enough to
+# drag a percentile upward, so the opening readings are thrown away.
+WARMUP_SECONDS = 0.7
+
 
 def measure(seconds: int, label: str) -> list:
     """Record for a fixed time, printing a live meter, and return chunk RMS values."""
@@ -33,14 +38,20 @@ def measure(seconds: int, label: str) -> list:
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=BLOCK_SIZE
     )
+    warmup_chunks = int(WARMUP_SECONDS * SAMPLE_RATE / BLOCK_SIZE)
 
     with stream:
-        deadline = time.monotonic() + seconds
+        deadline = time.monotonic() + seconds + WARMUP_SECONDS
+        index = 0
+
         while time.monotonic() < deadline:
             indata, _ = stream.read(BLOCK_SIZE)
             pcm16 = (indata[:, 0] * 32767).astype(np.int16).tobytes()
             rms = chunk_rms(pcm16)
-            readings.append(rms)
+            index += 1
+
+            if index > warmup_chunks:
+                readings.append(rms)
 
             bar = "#" * min(50, int(rms / 100))
             remaining = max(0.0, deadline - time.monotonic())
@@ -62,17 +73,23 @@ def main() -> None:
     print("Starting now.")
     speech = measure(SPEECH_SECONDS, "  speech ")
 
-    noise_floor = float(np.percentile(silence, 95))
+    # The median, not a high percentile. Four seconds is only forty chunks, so
+    # one chair creak decides a 95th percentile and reports a quiet room as a
+    # loud one. The median describes the level the room actually sits at.
+    noise_floor = float(np.median(silence))
+    noise_peak = float(np.max(silence))
 
-    # Only chunks louder than the room count as speech. Averaging the whole
-    # speech recording measures the gaps between your sentences instead of
-    # your voice, which is how you end up with a "quietest speech" of nearly
-    # zero on a recording where you were talking the whole time.
-    active = [r for r in speech if r > noise_floor]
+    # Only chunks clearly louder than the room count as speech. Averaging the
+    # whole speech recording measures the gaps between your sentences instead
+    # of your voice, which reports a "quietest speech" of nearly zero on a
+    # recording where you were talking the whole time.
+    speech_floor = max(noise_floor * 2, 30.0)
+    active = [r for r in speech if r > speech_floor]
     talking_fraction = len(active) / len(speech) if speech else 0.0
 
     print("\n--- results ---")
-    print(f"room noise (95th percentile) : {noise_floor:7.0f}")
+    print(f"room noise (median)          : {noise_floor:7.0f}")
+    print(f"loudest thing in the quiet    : {noise_peak:7.0f}")
     print(f"you were talking for         : {talking_fraction * 100:6.0f}% of that window")
 
     if talking_fraction < 0.35:
@@ -88,16 +105,20 @@ def main() -> None:
     print(f"your quieter speech (20th)   : {quiet_speech:7.0f}")
     print(f"your loudest speech (90th)   : {loud_speech:7.0f}")
 
-    if quiet_speech <= noise_floor * 1.4:
+    if quiet_speech <= max(noise_floor, 1.0) * 3:
         print(
-            f"\nYour voice only reaches about {quiet_speech / noise_floor:.1f}x the room noise,"
-            "\nwhich is too close to separate reliably. A fan, an air conditioner, or a"
-            "\nmicrophone with a high noise floor will all do this. Move closer to the"
-            "\nmicrophone, turn off what you can, and run it again."
+            f"\nYour voice only reaches about {quiet_speech / max(noise_floor, 1.0):.1f}x the room"
+            "\nlevel, which is too close to separate reliably. A fan, an air conditioner,"
+            "\nor microphone boost turned on in Windows will all do this. Move closer to"
+            "\nthe microphone, turn off what you can, and run it again."
         )
         return
 
-    suggested = round((noise_floor + quiet_speech) / 2, -1)
+    # Sit the threshold below the quiet end of your voice rather than midway
+    # between the two levels. Room noise and speech can differ by a factor of a
+    # hundred, and a midpoint on that scale lands far too close to your voice,
+    # cutting a turn every time you trail off.
+    suggested = max(round(quiet_speech * 0.3, -1), round(noise_floor * 3, -1), 50)
     print(f"\nSuggested --speech-threshold: {suggested:.0f}")
     print(f"    python app.py --speech-threshold {suggested:.0f}")
     print(
