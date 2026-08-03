@@ -27,7 +27,7 @@ import time
 import websockets
 from dotenv import load_dotenv
 
-from mic_stream import send_microphone_audio, start_microphone
+from mic_stream import SPEECH_RMS_THRESHOLD, SpeechGate, send_microphone_audio, start_microphone
 from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState
 
 load_dotenv()
@@ -47,10 +47,22 @@ def parse_args() -> argparse.Namespace:
         help="manual is the only mode gpt-live-transcribe currently accepts (tested August 1, 2026)",
     )
     parser.add_argument(
-        "--commit-interval",
+        "--silence-hold",
         type=float,
-        default=4.0,
-        help="seconds between automatic commits when --turn-detection is manual",
+        default=0.8,
+        help="seconds of silence after speech before the turn is committed",
+    )
+    parser.add_argument(
+        "--max-turn",
+        type=float,
+        default=15.0,
+        help="commit anyway after this many seconds, so a turn never grows unbounded",
+    )
+    parser.add_argument(
+        "--speech-threshold",
+        type=float,
+        default=SPEECH_RMS_THRESHOLD,
+        help="RMS amplitude above which a chunk counts as speech; raise it in a noisy room",
     )
     parser.add_argument("--export", default="transcript_export.json")
     return parser.parse_args()
@@ -77,7 +89,11 @@ async def main() -> None:
     state = TranscriptState()
     loop = asyncio.get_running_loop()
     mic_queue: asyncio.Queue = asyncio.Queue()
-    appended = asyncio.Event()
+    gate = SpeechGate(
+        threshold=args.speech_threshold,
+        silence_hold_s=args.silence_hold,
+        max_turn_s=args.max_turn,
+    )
     session_started_at = time.time()
     first_delta_latency = None
 
@@ -89,17 +105,18 @@ async def main() -> None:
 
         mic = start_microphone(loop, mic_queue)
 
-        async def commit_on_interval() -> None:
+        async def commit_on_pause() -> None:
             # Only meaningful in manual mode; server_vad/semantic_vad commit
-            # on their own if the API accepts them for this model.
+            # on their own if the API ever accepts them for this model.
             if args.turn_detection != "manual":
                 return
             while True:
-                await asyncio.sleep(args.commit_interval)
-                # Guard on audio actually sent, not on the mic queue, which
-                # the sender coroutine keeps drained to empty.
-                if appended.is_set():
-                    appended.clear()
+                await asyncio.sleep(0.1)
+                # The gate watches audio energy, not the mic queue, which the
+                # sender keeps drained, and not the clock, which fires during
+                # silence and cuts sentences in half.
+                if gate.should_commit():
+                    gate.reset()
                     await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
         async def receive() -> None:
@@ -135,7 +152,7 @@ async def main() -> None:
 
         try:
             await asyncio.gather(
-                send_microphone_audio(ws, mic_queue, appended), receive(), commit_on_interval()
+                send_microphone_audio(ws, mic_queue, gate), receive(), commit_on_pause()
             )
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass

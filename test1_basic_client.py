@@ -19,7 +19,7 @@ import os
 import websockets
 from dotenv import load_dotenv
 
-from mic_stream import send_microphone_audio, start_microphone
+from mic_stream import SpeechGate, send_microphone_audio, start_microphone
 from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState
 
 load_dotenv()
@@ -43,21 +43,19 @@ async def receive_events(ws, state: TranscriptState) -> None:
             print(f"\n[error] {event.get('error', event)}")
 
 
-async def commit_on_interval(ws, appended: asyncio.Event, seconds: float = 4.0) -> None:
-    """Manually commit the buffer every few seconds.
+async def commit_on_pause(ws, gate: SpeechGate, poll_s: float = 0.1) -> None:
+    """Commit the buffer once the speaker has said something and then paused.
 
     turn_detection is null in this test, so nothing finalizes a turn unless
-    the client asks for it. A fixed interval is the simplest strategy; push-
-    to-talk and VAD-based alternatives are covered later in the article.
-
-    The `appended` event, set by the sender coroutine, is what guards against
-    input_audio_buffer_commit_empty. Testing the mic queue instead would
-    never commit, since the sender empties that queue continuously.
+    the client asks for it. Committing on a fixed timer instead looks simpler
+    and behaves badly: it fires during silence and returns empty transcripts,
+    and it cuts sentences mid-word. The gate watches audio energy so turns end
+    where the speaker ended them.
     """
     while True:
-        await asyncio.sleep(seconds)
-        if appended.is_set():
-            appended.clear()
+        await asyncio.sleep(poll_s)
+        if gate.should_commit():
+            gate.reset()
             await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
 
@@ -66,7 +64,7 @@ async def main() -> None:
     state = TranscriptState()
     loop = asyncio.get_running_loop()
     mic_queue: asyncio.Queue = asyncio.Queue()
-    appended = asyncio.Event()
+    gate = SpeechGate()
 
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
     async with websockets.connect(WS_URL, additional_headers=headers) as ws:
@@ -76,9 +74,9 @@ async def main() -> None:
         mic = start_microphone(loop, mic_queue)
         try:
             await asyncio.gather(
-                send_microphone_audio(ws, mic_queue, appended),
+                send_microphone_audio(ws, mic_queue, gate),
                 receive_events(ws, state),
-                commit_on_interval(ws, appended),
+                commit_on_pause(ws, gate),
             )
         finally:
             mic.stop()

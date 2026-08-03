@@ -29,7 +29,9 @@ On Linux:
 - `transcribe_lib.py`: session config builder, WAV/PCM helpers, and the
   `TranscriptState` class used to reconcile out-of-order completion events.
 - `mic_stream.py`: non-blocking microphone capture with `sounddevice`,
-  handing audio off to asyncio through a thread-safe queue.
+  handing audio off to asyncio through a thread-safe queue. Also holds
+  `SpeechGate`, the client-side voice activity detector that decides when to
+  commit a turn, since the API will not run one for this model.
 - `test1_basic_client.py`: the basic live client from the "Building a Basic
   Live Transcription Client" section. Manual commits, no VAD.
 - `gen_sample_audio.py`: writes the four `sample_audio/` clips through
