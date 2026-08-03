@@ -104,6 +104,17 @@ def live_caption_line(prefix: str, text: str) -> str:
     return prefix + text.ljust(room)
 
 
+def clear_live_line() -> str:
+    """Blank the redrawing caption line before printing over it.
+
+    A finalized line is usually longer than the partial it replaces, so it
+    covers the old text on its own. Usually is not always: a short final
+    would leave the tail of a long partial sitting on screen next to it.
+    """
+    width = shutil.get_terminal_size(fallback=(100, 24)).columns - 1
+    return "\r" + " " * width + "\r"
+
+
 def read_wav_pcm16_mono_24k(path: str) -> bytes:
     """Read a WAV file and confirm it already matches the API's audio format.
 

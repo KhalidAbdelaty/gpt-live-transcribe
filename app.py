@@ -28,7 +28,13 @@ import websockets
 from dotenv import load_dotenv
 
 from mic_stream import SpeechGate, send_microphone_audio, start_microphone
-from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState, live_caption_line
+from transcribe_lib import (
+    WS_URL,
+    TranscriptionConfig,
+    TranscriptState,
+    clear_live_line,
+    live_caption_line,
+)
 
 load_dotenv()
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -142,7 +148,7 @@ async def main() -> None:
                     if not transcript:
                         continue
                     state.apply_completed(event["item_id"], transcript)
-                    print(f"\r[caption] {transcript}")
+                    print(f"{clear_live_line()}[caption] {transcript}")
 
                 elif event_type == "input_audio_buffer.speech_started":
                     print("\n[vad] speech started")
