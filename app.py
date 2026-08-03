@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--silence-hold",
         type=float,
-        default=0.8,
+        default=1.5,
         help="seconds of silence after speech before the turn is committed",
     )
     parser.add_argument(

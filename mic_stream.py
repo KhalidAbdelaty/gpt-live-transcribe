@@ -74,7 +74,11 @@ class SpeechGate:
     def __init__(
         self,
         threshold: float = SPEECH_RMS_THRESHOLD,
-        silence_hold_s: float = 0.8,
+        # 0.8s sounded reasonable and was not: a voice dipping at the end of a
+        # clause, or a breath mid-sentence, reads as a pause and commits early,
+        # which hands the model half a sentence. 1.5s waits out normal speech
+        # rhythm and still finalizes a caption fast enough to read live.
+        silence_hold_s: float = 1.5,
         max_turn_s: float = 15.0,
     ) -> None:
         self.threshold = threshold
