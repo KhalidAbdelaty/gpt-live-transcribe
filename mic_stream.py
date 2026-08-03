@@ -107,27 +107,37 @@ class SpeechGate:
         self._last_speech_at = 0.0
         self._turn_started_at = time.monotonic()
 
-    def _speech_threshold(self, rms: float) -> float:
+    def _is_speech(self, rms: float) -> bool:
+        """Classify one chunk, updating the room estimate only from silence.
+
+        The floor has to learn from chunks it already believes are noise. An
+        earlier version let every loud chunk nudge it upward, which sounds
+        harmless and is not: through a long sentence the floor climbed toward
+        the speaker's own level, the threshold climbed with it, and about six
+        seconds in the gate stopped hearing the voice it had been tracking.
+        It then committed mid-sentence and handed the model a fragment.
+        """
         if self.threshold is not None:
-            return self.threshold
+            return rms >= self.threshold
 
         if self._noise_floor is None:
             self._noise_floor = rms
-        elif rms < self._noise_floor:
-            # Drop toward a quieter room quickly, so the estimate recovers fast
-            # once someone stops talking.
-            self._noise_floor += (rms - self._noise_floor) * 0.5
-        else:
-            # Rise slowly, or a long sentence would drag the floor up to meet
-            # itself and the gate would stop hearing speech.
-            self._noise_floor += (rms - self._noise_floor) * 0.005
+            return False
 
-        return max(self._noise_floor * self.noise_ratio, MIN_SPEECH_RMS)
+        threshold = max(self._noise_floor * self.noise_ratio, MIN_SPEECH_RMS)
+        if rms >= threshold:
+            return True
+
+        # Below the threshold, so treat it as the room and adapt. Falling fast
+        # and rising slowly keeps a door slam from raising the floor for the
+        # rest of the session.
+        rate = 0.5 if rms < self._noise_floor else 0.02
+        self._noise_floor += (rms - self._noise_floor) * rate
+        return False
 
     def observe(self, pcm16: bytes) -> None:
         """Record whether this chunk carried speech."""
-        rms = chunk_rms(pcm16)
-        if rms < self._speech_threshold(rms):
+        if not self._is_speech(chunk_rms(pcm16)):
             return
 
         if not self._heard_speech:
