@@ -28,7 +28,7 @@ import websockets
 from dotenv import load_dotenv
 
 from mic_stream import SpeechGate, send_microphone_audio, start_microphone
-from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState
+from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState, live_caption_line
 
 load_dotenv()
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -134,14 +134,15 @@ async def main() -> None:
                     if first_delta_latency is None:
                         first_delta_latency = round(time.time() - session_started_at, 3)
                     state.apply_delta(event["item_id"], event["delta"])
-                    print(f"\r[live] {state.partials[event['item_id']]}", end="", flush=True)
+                    line = live_caption_line("[live] ", state.partials[event["item_id"]])
+                    print(f"\r{line}", end="", flush=True)
 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript", "").strip()
                     if not transcript:
                         continue
                     state.apply_completed(event["item_id"], transcript)
-                    print(f"\n[caption] {transcript}")
+                    print(f"\r[caption] {transcript}")
 
                 elif event_type == "input_audio_buffer.speech_started":
                     print("\n[vad] speech started")

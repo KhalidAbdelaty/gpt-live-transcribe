@@ -20,7 +20,7 @@ import websockets
 from dotenv import load_dotenv
 
 from mic_stream import SpeechGate, send_microphone_audio, start_microphone
-from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState
+from transcribe_lib import WS_URL, TranscriptionConfig, TranscriptState, live_caption_line
 
 load_dotenv()
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -33,11 +33,15 @@ async def receive_events(ws, state: TranscriptState) -> None:
 
         if event_type == "conversation.item.input_audio_transcription.delta":
             state.apply_delta(event["item_id"], event["delta"])
-            print(f"\r[partial] {state.partials[event['item_id']]}", end="", flush=True)
+            line = live_caption_line("[partial] ", state.partials[event["item_id"]])
+            print(f"\r{line}", end="", flush=True)
 
         elif event_type == "conversation.item.input_audio_transcription.completed":
-            state.apply_completed(event["item_id"], event["transcript"])
-            print(f"\n[final]   {event['transcript']}  (item_id={event['item_id']})")
+            transcript = event.get("transcript", "").strip()
+            if not transcript:
+                continue
+            state.apply_completed(event["item_id"], transcript)
+            print(f"\r[final]   {transcript}  (item_id={event['item_id']})")
 
         elif event_type == "error":
             # A commit that races an already-cleared buffer is harmless noise.

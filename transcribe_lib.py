@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import shutil
 import time
 import wave
 from dataclasses import dataclass, field
@@ -80,6 +81,27 @@ class TranscriptionConfig:
                 },
             },
         }
+
+
+def live_caption_line(prefix: str, text: str) -> str:
+    """Fit a redrawing caption line inside the terminal so it never wraps.
+
+    Partial captions are redrawn with a carriage return, which moves the
+    cursor to the start of the current screen row. Once the caption is long
+    enough to wrap, that row is no longer the start of the caption, so every
+    update paints over the tail of the previous one and the line turns to
+    mush. Keeping the text inside the terminal width keeps the redraw in one
+    place, and showing the end rather than the beginning matches what a
+    caption does anyway: the newest words are the ones worth reading.
+    """
+    width = shutil.get_terminal_size(fallback=(100, 24)).columns - 1
+    room = max(20, width - len(prefix))
+
+    if len(text) > room:
+        text = "..." + text[-(room - 3):]
+
+    # Pad so a shorter update erases whatever the longer one left behind.
+    return prefix + text.ljust(room)
 
 
 def read_wav_pcm16_mono_24k(path: str) -> bytes:
