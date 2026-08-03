@@ -89,7 +89,11 @@ class SpeechGate:
         # rhythm and still finalizes a caption fast enough to read live.
         silence_hold_s: float = 1.5,
         max_turn_s: float = 15.0,
-        min_speech_s: float = 0.4,
+        # A turn shorter than this is a fragment, not a sentence. Hesitating
+        # over one word used to end the turn there, and the model transcribed
+        # a single word with no surrounding audio to place it, which is how
+        # "partial" came back as "Barshel".
+        min_speech_s: float = 1.0,
         noise_ratio: float = SPEECH_NOISE_RATIO,
     ) -> None:
         self.threshold = threshold  # None means adapt to the room

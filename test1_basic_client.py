@@ -3,15 +3,20 @@
 Connects to the Realtime API, opens a transcription session with
 gpt-live-transcribe, streams microphone audio, and prints partial and final
 transcripts as they arrive. Turn detection is off (manual commit) so the
-event flow stays easy to follow; the "Handling Turn Detection" section of
-the article swaps this for server_vad.
+event flow stays easy to follow.
+
+No context is sent by default, which is the point: it shows what the model
+does on its own. If a word it is unsure of comes back in the wrong script,
+name the language you are speaking and it stops guessing.
 
 Run with:
     python test1_basic_client.py
+    python test1_basic_client.py --languages en
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
@@ -80,8 +85,27 @@ async def commit_on_pause(ws, gate: SpeechGate, poll_s: float = 0.1) -> None:
             await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Minimal GPT Live Transcribe client")
+    parser.add_argument(
+        "--languages",
+        default=None,
+        help="comma-separated ISO 639-1 codes, for example en or en,ar",
+    )
+    parser.add_argument("--prompt", default=None, help="free-form context about the audio")
+    return parser.parse_args()
+
+
 async def main() -> None:
-    config = TranscriptionConfig(delay="low", turn_detection=None)
+    args = parse_args()
+    languages = [c.strip() for c in args.languages.split(",")] if args.languages else None
+    config = TranscriptionConfig(
+        delay="low",
+        prompt=args.prompt,
+        languages=languages,
+        turn_detection=None,
+    )
+
     state = TranscriptState()
     loop = asyncio.get_running_loop()
     mic_queue: asyncio.Queue = asyncio.Queue()
@@ -90,7 +114,8 @@ async def main() -> None:
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
     async with websockets.connect(WS_URL, additional_headers=headers) as ws:
         await ws.send(json.dumps(config.to_session_update()))
-        print("Connected. Session configured for gpt-live-transcribe. Speak now (Ctrl+C to stop).")
+        hint = f", languages={','.join(languages)}" if languages else ", no context"
+        print(f"Connected. Session configured for gpt-live-transcribe{hint}. Speak now (Ctrl+C to stop).")
 
         mic = start_microphone(loop, mic_queue)
         try:
