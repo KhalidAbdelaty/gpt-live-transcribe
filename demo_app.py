@@ -365,7 +365,7 @@ with st.sidebar:
 
     st.caption(
         "This model rejects server_vad and semantic_vad, so every tab commits "
-        "the audio buffer manually. Tested against the live API on August 1, 2026."
+        "the audio buffer manually. Tested against the live API on August 4, 2026."
     )
 
 

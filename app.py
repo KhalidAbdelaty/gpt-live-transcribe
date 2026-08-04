@@ -4,7 +4,7 @@ Combines microphone capture, live partial captions, a finalized transcript
 history, and a JSON export on exit. Configure delay, context, keywords,
 languages, and turn detection with CLI flags instead of editing the script.
 
-As tested against the live API on August 1, 2026, gpt-live-transcribe
+As tested against the live API on August 4, 2026, gpt-live-transcribe
 rejects both server_vad and semantic_vad with "Turn detection is not
 supported for this transcription model." Manual commit (turn_detection:
 null) is the only mode that currently works, so it is the default here.
@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
         "--turn-detection",
         default="manual",
         choices=["manual", "server_vad", "semantic_vad"],
-        help="manual is the only mode gpt-live-transcribe currently accepts (tested August 1, 2026)",
+        help="manual is the only mode gpt-live-transcribe currently accepts (tested August 4, 2026)",
     )
     parser.add_argument(
         "--silence-hold",
